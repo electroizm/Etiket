@@ -1,0 +1,32 @@
+name: Dogtas Scraper
+
+on:
+  schedule:
+    - cron: "0 0 * * *"   # Her gece 00:00 UTC = 03:00 Türkiye saati
+  workflow_dispatch:        # Elle de başlatılabilir (GitHub → Actions → Run workflow)
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90     # Max 90 dakika (dogtas.com büyükse yetişir)
+
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Bağımlılıkları yükle
+        run: pip install aiohttp beautifulsoup4 requests lxml supabase pydantic-settings python-dotenv
+
+      - name: Scraper'ı çalıştır
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        run: python -c "from scraper.dogtas import run; run()"
