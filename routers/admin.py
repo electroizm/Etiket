@@ -56,20 +56,22 @@ async def start_scraper(
 
     def run_scraper():
         global _scraper_running
-        _scraper_running = True
         try:
             from scraper.dogtas import run
             run()
         finally:
             _scraper_running = False
 
+    _scraper_running = True   # task eklenmeden önce set et
     background_tasks.add_task(run_scraper)
     return {"ok": True, "message": "Scraper başlatıldı"}
 
 
 @router.get("/scraper/status")
 async def scraper_status(user: dict = Depends(require_admin)):
-    return {"running": _scraper_running}
+    sb = get_supabase()
+    count = sb.table("products").select("sku", count="exact").execute().count
+    return {"running": _scraper_running, "product_count": count}
 
 
 @router.get("/kullanicilar")

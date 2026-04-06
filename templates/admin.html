@@ -37,11 +37,15 @@
         {% endif %}
     </div>
     <div class="card-body">
-        <p class="text-muted">dogtas.com'dan tüm ürünleri çekip Supabase'e yazar.</p>
+        <p class="text-muted">dogtas.com'dan tüm ürünleri çekip Supabase'e yazar. Tamamlanması 30-60 dakika sürebilir.</p>
         <button class="btn btn-primary" onclick="startScraper()"
                 id="scraper-btn" {% if scraper_running %}disabled{% endif %}>
             {% if scraper_running %}Çalışıyor...{% else %}Scraper Başlat{% endif %}
         </button>
+        <div id="scraper-progress" style="margin-top:12px; display:{% if scraper_running %}block{% else %}none{% endif %};">
+            <span class="badge badge-warning">⏳ Çalışıyor</span>
+            <span id="product-count-live" style="margin-left:10px; font-weight:bold;">{{ product_count }} ürün kaydedildi</span>
+        </div>
     </div>
 </div>
 
@@ -106,6 +110,7 @@ async function startScraper() {
     const res = await fetch("/admin/scraper/start", {method: "POST"});
     if (res.ok) {
         btn.textContent = "Çalışıyor...";
+        document.getElementById("scraper-progress").style.display = "block";
         pollScraper();
     } else {
         const err = await res.json();
@@ -118,12 +123,21 @@ async function startScraper() {
 async function pollScraper() {
     const res  = await fetch("/admin/scraper/status");
     const data = await res.json();
+    if (data.product_count !== undefined) {
+        document.getElementById("product-count-live").textContent =
+            data.product_count + " ürün kaydedildi";
+    }
     if (data.running) {
-        setTimeout(pollScraper, 5000);
+        setTimeout(pollScraper, 10000);
     } else {
         location.reload();
     }
 }
+
+// Sayfa açıkken scraper çalışıyorsa polling başlat
+{% if scraper_running %}
+pollScraper();
+{% endif %}
 
 async function setPaid(userId) {
     if (!confirm("Bu kullanıcıyı 30 günlük ücretli plana geçirmek istiyor musunuz?")) return;
