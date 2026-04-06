@@ -377,30 +377,38 @@ async def scrape_all(max_urls: Optional[int] = None) -> int:
         urls = urls[:max_urls]
     logger.info(f"{len(urls)} URL taranacak")
 
-    # 2. Async fetch
+    if not urls:
+        logger.error("Hiç URL bulunamadı — sitemap erişilemiyor olabilir")
+        return 0
+
+    # 2. Async fetch — URL'yi task ile birlikte tut
     sem       = asyncio.Semaphore(CONCURRENT)
     products  : list[dict] = []
     connector = aiohttp.TCPConnector(limit=10, limit_per_host=3)
 
+    async def fetch_with_url(session, sem, url):
+        html = await fetch_url(session, sem, url)
+        return url, html
+
     async with aiohttp.ClientSession(connector=connector) as session:
-        tasks = [fetch_url(session, sem, url) for url in urls]
+        tasks = [fetch_with_url(session, sem, url) for url in urls]
+        total = len(tasks)
 
         for i, coro in enumerate(asyncio.as_completed(tasks), 1):
-            html = await coro
+            url, html = await coro
             if not html:
                 continue
 
-            url     = urls[i - 1]   # as_completed sırası değişebilir, index yaklaşık
             product = parse_product(html, url)
-
             if product and not should_filter(product):
                 products.append(product)
 
-            if i % 100 == 0:
-                logger.info(f"  {i}/{len(urls)} işlendi, {len(products)} ürün bulundu")
+            if i % 50 == 0:
+                logger.info(f"  {i}/{total} işlendi — {len(products)} ürün bulundu")
+
+    logger.info(f"Tarama bitti: {len(products)} ürün")
 
     # 3. Duplikasyon kuralları
-    logger.info(f"Duplikasyon uygulanıyor ({len(products)} ürün)...")
     products = apply_duplication(products)
     logger.info(f"Duplikasyon sonrası: {len(products)} ürün")
 
@@ -412,6 +420,11 @@ async def scrape_all(max_urls: Optional[int] = None) -> int:
 
 def run(max_urls: Optional[int] = None) -> int:
     """Sync wrapper — admin panel ve CLI'dan çağırmak için"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        force=True,
+    )
     return asyncio.run(scrape_all(max_urls))
 
 
