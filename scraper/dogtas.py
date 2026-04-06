@@ -72,7 +72,7 @@ def get_all_product_urls() -> list[str]:
             child_sitemaps = [
                 loc.text.strip()
                 for loc in root.findall(".//s:loc", ns)
-                if loc.text and "products" in loc.text
+                if loc.text and "products" in loc.text and "/en/" not in loc.text
             ]
             if child_sitemaps:
                 logger.info(f"[Sitemap Index] {len(child_sitemaps)} alt sitemap bulundu")
@@ -390,6 +390,9 @@ async def scrape_all(max_urls: Optional[int] = None) -> int:
         html = await fetch_url(session, sem, url)
         return url, html
 
+    total_saved = 0
+    buffer: list[dict] = []
+
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = [fetch_with_url(session, sem, url) for url in urls]
         total = len(tasks)
@@ -401,21 +404,27 @@ async def scrape_all(max_urls: Optional[int] = None) -> int:
 
             product = parse_product(html, url)
             if product and not should_filter(product):
-                products.append(product)
+                buffer.append(product)
 
-            if i % 50 == 0:
-                logger.info(f"  {i}/{total} işlendi — {len(products)} ürün bulundu")
+            # Her BATCH_SIZE üründe bir Supabase'e kaydet
+            if len(buffer) >= BATCH_SIZE:
+                batch = apply_duplication(buffer)
+                saved = save_to_supabase(batch)
+                total_saved += saved
+                buffer = []
+                logger.info(f"  {i}/{total} işlendi — toplam {total_saved} ürün kaydedildi")
 
-    logger.info(f"Tarama bitti: {len(products)} ürün")
+            elif i % 50 == 0:
+                logger.info(f"  {i}/{total} işlendi — tamponda {len(buffer)} ürün")
 
-    # 3. Duplikasyon kuralları
-    products = apply_duplication(products)
-    logger.info(f"Duplikasyon sonrası: {len(products)} ürün")
+    # Kalan ürünleri kaydet
+    if buffer:
+        batch = apply_duplication(buffer)
+        saved = save_to_supabase(batch)
+        total_saved += saved
 
-    # 4. Supabase'e yaz
-    saved = save_to_supabase(products)
-    logger.info(f"Tamamlandı: {saved} ürün Supabase'e kaydedildi")
-    return saved
+    logger.info(f"Tamamlandı: {total_saved} ürün Supabase'e kaydedildi")
+    return total_saved
 
 
 def run(max_urls: Optional[int] = None) -> int:
