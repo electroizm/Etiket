@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Etiket Sistemi{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Etiket Listesi</h2>
+    <p class="text-muted">Kategori ve koleksiyon seçerek ürünleri filtreleyin, etiket oluşturun.</p>
+</div>
+
+<!-- Filtre Paneli -->
+<div class="filter-bar">
+    <div class="filter-group">
+        <label>Kategori</label>
+        <select id="kategori-select" onchange="onKategoriChange(this.value)">
+            <option value="">— Seçiniz —</option>
+        </select>
+    </div>
+
+    <div class="filter-group">
+        <label>Koleksiyon</label>
+        <select id="koleksiyon-select" onchange="onKoleksiyonChange(this.value)" disabled>
+            <option value="">— Önce kategori seçin —</option>
+        </select>
+    </div>
+
+    <div class="filter-group filter-search">
+        <label>Ürün Ara</label>
+        <input type="text" id="search-input" placeholder="Ürün adı veya SKU..."
+               oninput="onSearch(this.value)">
+    </div>
+</div>
+
+<!-- Tablo Araçları -->
+<div class="table-toolbar" id="table-toolbar" style="display:none">
+    <div class="toolbar-left">
+        <span id="selected-count" class="badge">Seçili: 0</span>
+        <button class="btn btn-sm" onclick="selectAll()">Tümünü Seç</button>
+        <button class="btn btn-sm btn-outline" onclick="clearAll()">Temizle</button>
+    </div>
+    <div class="toolbar-right">
+        <button class="btn btn-success" onclick="saveLabels()" id="save-btn">
+            Etiket Listesi Kaydet
+        </button>
+        <button class="btn btn-primary" onclick="generatePdf()" id="pdf-btn">
+            PDF İndir
+        </button>
+    </div>
+</div>
+
+<!-- Ürün Tablosu -->
+<div id="products-container">
+    <div class="empty-state">
+        <p>Kategori ve koleksiyon seçerek ürünleri listeleyin.</p>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentKategori   = "";
+let currentKoleksiyon = "";
+let allProducts       = [];
+let selectedSkus      = {};   // {sku: {checked: bool, miktar: 1}}
+let searchTimeout     = null;
+
+// -------------------------------------------------------
+// Başlangıç: Kategorileri yükle
+// -------------------------------------------------------
+async function init() {
+    const res  = await fetch("/products/kategoriler");
+    const data = await res.json();
+
+    const sel = document.getElementById("kategori-select");
+    data.kategoriler.forEach(k => {
+        const opt = document.createElement("option");
+        opt.value = k;
+        opt.textContent = k;
+        sel.appendChild(opt);
+    });
+}
+
+// -------------------------------------------------------
+// Kategori seçildi
+// -------------------------------------------------------
+async function onKategoriChange(kategori) {
+    currentKategori   = kategori;
+    currentKoleksiyon = "";
+    selectedSkus      = {};
+
+    const kolSel = document.getElementById("koleksiyon-select");
+    kolSel.disabled = true;
+    kolSel.innerHTML = "<option value=''>Yükleniyor...</option>";
+
+    document.getElementById("products-container").innerHTML =
+        "<div class='empty-state'><p>Koleksiyon seçin.</p></div>";
+    document.getElementById("table-toolbar").style.display = "none";
+
+    if (!kategori) return;
+
+    const res  = await fetch(`/products/koleksiyonlar?kategori=${encodeURIComponent(kategori)}`);
+    const data = await res.json();
+
+    kolSel.innerHTML = "<option value=''>— Seçiniz —</option>";
+    data.koleksiyonlar.forEach(k => {
+        const opt = document.createElement("option");
+        opt.value = k;
+        opt.textContent = k;
+        kolSel.appendChild(opt);
+    });
+    kolSel.disabled = false;
+}
+
+// -------------------------------------------------------
+// Koleksiyon seçildi
+// -------------------------------------------------------
+async function onKoleksiyonChange(koleksiyon) {
+    currentKoleksiyon = koleksiyon;
+    selectedSkus      = {};
+    if (!koleksiyon) return;
+    await loadProducts();
+}
+
+// -------------------------------------------------------
+// Arama (debounce 300ms)
+// -------------------------------------------------------
+function onSearch(q) {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => loadProducts(q), 300);
+}
+
+// -------------------------------------------------------
+// Ürünleri yükle ve tabloyu çiz
+// -------------------------------------------------------
+async function loadProducts(q = "") {
+    let url = `/products/liste?kategori=${encodeURIComponent(currentKategori)}&koleksiyon=${encodeURIComponent(currentKoleksiyon)}`;
+    if (q) url += `&q=${encodeURIComponent(q)}`;
+
+    const res  = await fetch(url);
+    const data = await res.json();
+    allProducts = data.products;
+
+    renderTable(allProducts);
+
+    document.getElementById("table-toolbar").style.display =
+        allProducts.length ? "flex" : "none";
+}
+
+// -------------------------------------------------------
+// Tablo render
+// -------------------------------------------------------
+function renderTable(products) {
+    if (!products.length) {
+        document.getElementById("products-container").innerHTML =
+            "<div class='empty-state'><p>Ürün bulunamadı.</p></div>";
+        return;
+    }
+
+    // Seçili olanları üste al, sonra alfabetik sırala
+    products.sort((a, b) => {
+        const aChecked = selectedSkus[a.sku]?.checked ? 0 : 1;
+        const bChecked = selectedSkus[b.sku]?.checked ? 0 : 1;
+        if (aChecked !== bChecked) return aChecked - bChecked;
+        return a.urun_adi_tam.localeCompare(b.urun_adi_tam, "tr");
+    });
+
+    let html = `
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th width="40">Seç</th>
+                <th width="70">Adet</th>
+                <th>Ürün Adı</th>
+                <th width="100">SKU</th>
+                <th width="110">Liste Fiyatı</th>
+                <th width="110">Perakende</th>
+                <th width="60">İndirim</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    products.forEach(p => {
+        const state    = selectedSkus[p.sku] || {checked: false, miktar: 1};
+        const checked  = state.checked ? "checked" : "";
+        const indirim  = p.liste_fiyat && p.liste_fiyat !== p.perakende_fiyat
+            ? Math.round((1 - p.perakende_fiyat / p.liste_fiyat) * 100)
+            : 0;
+        const rowClass = state.checked ? "row-selected" : "";
+
+        html += `
+        <tr class="${rowClass}" data-sku="${p.sku}">
+            <td class="text-center">
+                <input type="checkbox" ${checked}
+                    onchange="onCheckbox('${p.sku}', this.checked)">
+            </td>
+            <td>
+                <input type="number" class="miktar-input" value="${state.miktar}" min="1" max="99"
+                    onchange="onMiktar('${p.sku}', this.value)"
+                    ${!state.checked ? "disabled" : ""}>
+            </td>
+            <td>${p.urun_adi_tam}</td>
+            <td class="text-muted small">${p.sku}</td>
+            <td class="text-right">${formatPrice(p.liste_fiyat)} TL</td>
+            <td class="text-right bold">${formatPrice(p.perakende_fiyat)} TL</td>
+            <td class="text-center">${indirim ? `<span class="badge badge-red">%${indirim}</span>` : "—"}</td>
+        </tr>`;
+    });
+
+    html += "</tbody></table>";
+    document.getElementById("products-container").innerHTML = html;
+    updateCount();
+}
+
+// -------------------------------------------------------
+// Checkbox / Miktar
+// -------------------------------------------------------
+function onCheckbox(sku, checked) {
+    if (!selectedSkus[sku]) selectedSkus[sku] = {checked: false, miktar: 1};
+    selectedSkus[sku].checked = checked;
+    // Kısa gecikme ile tabloyu sırala (seçili üste)
+    setTimeout(() => renderTable(allProducts), 150);
+}
+
+function onMiktar(sku, val) {
+    if (!selectedSkus[sku]) selectedSkus[sku] = {checked: true, miktar: 1};
+    selectedSkus[sku].miktar = parseInt(val) || 1;
+}
+
+function selectAll() {
+    allProducts.forEach(p => {
+        selectedSkus[p.sku] = {checked: true, miktar: selectedSkus[p.sku]?.miktar || 1};
+    });
+    renderTable(allProducts);
+}
+
+function clearAll() {
+    selectedSkus = {};
+    renderTable(allProducts);
+}
+
+function updateCount() {
+    const count = Object.values(selectedSkus).filter(s => s.checked).length;
+    document.getElementById("selected-count").textContent = `Seçili: ${count}`;
+}
+
+// -------------------------------------------------------
+// Kaydet
+// -------------------------------------------------------
+async function saveLabels() {
+    const urunler = allProducts
+        .filter(p => selectedSkus[p.sku]?.checked)
+        .map(p => ({
+            sku           : p.sku,
+            urun_adi_tam  : p.urun_adi_tam,
+            liste_fiyat   : p.liste_fiyat,
+            perakende_fiyat: p.perakende_fiyat,
+            miktar        : selectedSkus[p.sku]?.miktar || 1,
+            urun_url      : p.urun_url,
+        }));
+
+    if (!urunler.length) {
+        alert("Lütfen en az bir ürün seçin.");
+        return;
+    }
+
+    const takim_sku = urunler[0];   // İlk ürün takım SKU'su
+
+    const res = await fetch("/labels/kaydet", {
+        method : "POST",
+        headers: {"Content-Type": "application/json"},
+        body   : JSON.stringify({
+            kategori  : currentKategori,
+            koleksiyon: currentKoleksiyon,
+            takim_adi : "",
+            urunler,
+            takim_sku,
+        }),
+    });
+
+    if (res.ok) {
+        showToast("Etiket listesi kaydedildi!");
+    } else {
+        const err = await res.json();
+        alert("Hata: " + (err.detail || "Bilinmeyen hata"));
+    }
+}
+
+// -------------------------------------------------------
+// PDF İndir
+// -------------------------------------------------------
+async function generatePdf() {
+    if (!currentKategori || !currentKoleksiyon) {
+        alert("Önce kategori ve koleksiyon seçin.");
+        return;
+    }
+
+    const btn = document.getElementById("pdf-btn");
+    btn.disabled    = true;
+    btn.textContent = "Hazırlanıyor...";
+
+    try {
+        const res = await fetch("/pdf/generate", {
+            method : "POST",
+            headers: {"Content-Type": "application/json"},
+            body   : JSON.stringify({
+                kategori  : currentKategori,
+                koleksiyon: currentKoleksiyon,
+            }),
+        });
+
+        if (res.status === 402) {
+            window.location.href = "/payment";
+            return;
+        }
+
+        if (!res.ok) {
+            const err = await res.json();
+            alert("PDF hatası: " + (err.detail || "Bilinmeyen hata"));
+            return;
+        }
+
+        // Blob olarak al → indir
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement("a");
+        a.href     = url;
+        a.download = `etiket_${currentKoleksiyon}_${currentKategori}.pdf`.replace(/ /g, "_");
+        a.click();
+        URL.revokeObjectURL(url);
+
+    } finally {
+        btn.disabled    = false;
+        btn.textContent = "PDF İndir";
+    }
+}
+
+// -------------------------------------------------------
+// Yardımcılar
+// -------------------------------------------------------
+function formatPrice(n) {
+    if (!n) return "0";
+    return parseInt(n).toLocaleString("tr-TR");
+}
+
+function showToast(msg) {
+    const t = document.createElement("div");
+    t.className   = "toast";
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+}
+
+// Başlat
+init();
+</script>
+{% endblock %}

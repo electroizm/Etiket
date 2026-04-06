@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Etiket Sistemi{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    {% if request.cookies.get("access_token") %}
+    <nav class="navbar">
+        <div class="nav-brand">Etiket Sistemi</div>
+        <div class="nav-links">
+            <a href="/">Dashboard</a>
+            <a href="/auth/logout" class="btn btn-sm btn-outline">Çıkış</a>
+        </div>
+    </nav>
+    {% endif %}
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

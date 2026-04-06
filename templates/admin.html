@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Admin Panel{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Admin Panel</h2>
+</div>
+
+<!-- İstatistikler -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ product_count }}</div>
+        <div class="stat-label">Toplam Ürün</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ user_count }}</div>
+        <div class="stat-label">Toplam Kullanıcı</div>
+    </div>
+    <div class="stat-card stat-card-warning">
+        <div class="stat-value">{{ trial_count }}</div>
+        <div class="stat-label">Trial</div>
+    </div>
+    <div class="stat-card stat-card-success">
+        <div class="stat-value">{{ paid_count }}</div>
+        <div class="stat-label">Ödeme Yapan</div>
+    </div>
+</div>
+
+<!-- Scraper -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h3>Scraper</h3>
+        {% if scraper_running %}
+        <span class="badge badge-warning">Çalışıyor...</span>
+        {% else %}
+        <span class="badge badge-green">Hazır</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <p class="text-muted">dogtas.com'dan tüm ürünleri çekip Supabase'e yazar.</p>
+        <button class="btn btn-primary" onclick="startScraper()"
+                id="scraper-btn" {% if scraper_running %}disabled{% endif %}>
+            {% if scraper_running %}Çalışıyor...{% else %}Scraper Başlat{% endif %}
+        </button>
+    </div>
+</div>
+
+<!-- Kullanıcılar -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h3>Son Kayıtlar</h3>
+    </div>
+    <div class="card-body p-0">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Bayii Adı</th>
+                    <th>Plan</th>
+                    <th>Trial Bitiş</th>
+                    <th>Ödeme Bitiş</th>
+                    <th>İşlem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td>{{ u.bayii_adi or "—" }}</td>
+                    <td>
+                        {% if u.plan == "paid" %}
+                        <span class="badge badge-green">Ödeme Yapan</span>
+                        {% elif u.plan == "trial" %}
+                        <span class="badge badge-warning">Trial</span>
+                        {% else %}
+                        <span class="badge">{{ u.plan }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-muted small">
+                        {{ u.trial_ends[:10] if u.trial_ends else "—" }}
+                    </td>
+                    <td class="text-muted small">
+                        {{ u.paid_until[:10] if u.paid_until else "—" }}
+                    </td>
+                    <td>
+                        {% if u.plan != "paid" %}
+                        <button class="btn btn-sm btn-success"
+                            onclick="setPaid('{{ u.user_id }}')">
+                            Paid Yap (30 gün)
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function startScraper() {
+    const btn = document.getElementById("scraper-btn");
+    btn.disabled    = true;
+    btn.textContent = "Başlatılıyor...";
+
+    const res = await fetch("/admin/scraper/start", {method: "POST"});
+    if (res.ok) {
+        btn.textContent = "Çalışıyor...";
+        pollScraper();
+    } else {
+        const err = await res.json();
+        alert(err.detail);
+        btn.disabled    = false;
+        btn.textContent = "Scraper Başlat";
+    }
+}
+
+async function pollScraper() {
+    const res  = await fetch("/admin/scraper/status");
+    const data = await res.json();
+    if (data.running) {
+        setTimeout(pollScraper, 5000);
+    } else {
+        location.reload();
+    }
+}
+
+async function setPaid(userId) {
+    if (!confirm("Bu kullanıcıyı 30 günlük ücretli plana geçirmek istiyor musunuz?")) return;
+    const res = await fetch(`/admin/kullanici/${userId}/paid`, {method: "POST"});
+    if (res.ok) {
+        location.reload();
+    } else {
+        alert("Hata oluştu");
+    }
+}
+</script>
+{% endblock %}

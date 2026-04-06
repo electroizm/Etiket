@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Abonelik — Etiket Sistemi{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <div class="auth-card auth-card-wide">
+        <h1 class="auth-title">Aboneliğiniz Sona Erdi</h1>
+        <p class="auth-subtitle">
+            {% if message %}{{ message }}{% else %}14 günlük deneme süreniz doldu.{% endif %}
+        </p>
+
+        <div class="pricing-card">
+            <div class="pricing-amount">
+                <span class="pricing-price">149</span>
+                <span class="pricing-currency">TL / ay</span>
+            </div>
+            <ul class="pricing-features">
+                <li>Tüm Doğtaş ürün fiyatlarına erişim</li>
+                <li>Sınırsız PDF etiket oluşturma</li>
+                <li>Fiyat güncellemelerinde otomatik bildirim</li>
+                <li>Tüm kategoriler ve koleksiyonlar</li>
+            </ul>
+
+            <button class="btn btn-primary btn-full btn-lg" onclick="startPayment()">
+                Aboneliği Başlat — 149 TL / ay
+            </button>
+            <p class="text-muted small text-center mt-2">
+                İstediğiniz zaman iptal edebilirsiniz.
+            </p>
+        </div>
+
+        <p class="auth-footer">
+            Sorun mu var? <a href="mailto:destek@gunesler.info">destek@gunesler.info</a>
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function startPayment() {
+    // iyzico entegrasyonu eklenince buraya gelecek
+    alert("Ödeme sistemi yakında aktif olacak.\nBilgi için destek@gunesler.info adresine yazın.");
+}
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Giriş — Etiket Sistemi{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <div class="auth-card">
+        <h1 class="auth-title">Etiket Sistemi</h1>
+        <p class="auth-subtitle">Doğtaş Bayii Girişi</p>
+
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+
+        {% if success %}
+        <div class="alert alert-success">{{ success }}</div>
+        {% endif %}
+
+        <form method="POST" action="/auth/login" class="form">
+            <div class="form-group">
+                <label for="email">E-posta</label>
+                <input type="email" id="email" name="email" required
+                       placeholder="bayii@email.com" autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password">Şifre</label>
+                <input type="password" id="password" name="password" required
+                       placeholder="••••••••">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Giriş Yap</button>
+        </form>
+
+        <p class="auth-footer">
+            Hesabınız yok mu?
+            <a href="/auth/register">14 gün ücretsiz deneyin</a>
+        </p>
+    </div>
+</div>
+{% endblock %}
