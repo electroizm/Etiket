@@ -39,7 +39,7 @@ USER_AGENTS = [
 CONCURRENT   = 2          # Aynı anda kaç istek
 DELAY_MIN    = 1.5        # İstek arası min bekleme (jitter)
 DELAY_MAX    = 3.0        # İstek arası max bekleme
-BATCH_SIZE   = 200        # Supabase upsert batch boyutu
+BATCH_SIZE   = 50         # Supabase upsert batch boyutu
 
 FILTER_CATEGORIES = {"Doğtaş Home"}   # Bu kategoriler kaydedilmez
 FILTER_KEYWORDS   = [                 # Boş kategoride filtrele
