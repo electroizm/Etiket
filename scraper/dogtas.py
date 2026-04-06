@@ -349,14 +349,20 @@ def save_to_supabase(products: list[dict]) -> int:
     if not products:
         return 0
 
+    # Aynı SKU birden fazla kez gelirse (duplication kuralı) son olanı tut
+    seen: dict[str, dict] = {}
+    for p in products:
+        seen[p["sku"]] = p
+    deduped = list(seen.values())
+
     sb = get_supabase()
     saved = 0
 
-    for i in range(0, len(products), BATCH_SIZE):
-        batch = products[i : i + BATCH_SIZE]
+    for i in range(0, len(deduped), BATCH_SIZE):
+        batch = deduped[i : i + BATCH_SIZE]
         sb.table("products").upsert(batch, on_conflict="sku").execute()
         saved += len(batch)
-        logger.info(f"[Supabase] {saved}/{len(products)} kaydedildi")
+        logger.info(f"[Supabase] {saved}/{len(deduped)} kaydedildi")
 
     return saved
 
