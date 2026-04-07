@@ -2,12 +2,12 @@ name: Dogtas Scraper
 
 on:
   schedule:
-    - cron: "0 0 * * 0"   # Devre dışı: sadece Pazar günleri (referans için)
+    - cron: "0 0 * * *"   # Her gece 00:00 UTC = 03:00 Türkiye saati
   workflow_dispatch:        # Elle de başlatılabilir (GitHub → Actions → Run workflow)
 
 jobs:
   scrape:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 90     # Max 90 dakika (dogtas.com büyükse yetişir)
 
     steps:
