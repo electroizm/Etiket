@@ -20,6 +20,22 @@ jobs:
 
           url = "https://www.dogtas.com/piero-sandalye-kadife-dokulu-krem-3120012493"
 
+          # JS değişkenlerinde fiyat ara
+          r2 = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"}, timeout=20)
+          import re
+          # dataLayer, gtag, window.__PRICE__, vb.
+          patterns = [
+              r'dataLayer[^;]{0,500}price[^;]{0,200}',
+              r'"price"\s*:\s*[\d.]+',
+              r'"indirim[^"]*"\s*:\s*[\d.]+',
+              r'discount[^;]{0,100}price[^;]{0,100}',
+              r'sepette[^;]{0,200}',
+          ]
+          for pat in patterns:
+              matches = re.findall(pat, r2.text, re.IGNORECASE)
+              for m in matches[:2]:
+                  print(f"JS [{pat[:20]}]: {m[:150]}")
+
           # Farklı header kombinasyonlarını test et
           test_cases = [
               ("Sadece UA", {
