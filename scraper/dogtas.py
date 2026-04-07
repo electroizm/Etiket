@@ -165,10 +165,22 @@ def parse_prices(soup: BeautifulSoup) -> tuple[Optional[float], Optional[float]]
         except Exception:
             continue
 
-    # 2. HTML indirimli fiyat
+    # 2a. HTML indirimli fiyat — direkt element
     el = soup.select_one(".discount-price, .new-sale-price")
     if el:
         perakende = _parse_tr_price(el.get_text(strip=True))
+
+    # 2b. Fallback: .discount-name içindeki fiyat ("4.457,91 TLSepette %20 İndirim")
+    if perakende is None or perakende == liste:
+        el_dn = soup.select_one(".discount-name")
+        if el_dn:
+            text = el_dn.get_text(strip=True)
+            # Metindeki ilk fiyatı al
+            m = re.match(r"^([\d.,]+)\s*TL", text)
+            if m:
+                p2 = _parse_tr_price(m.group(1))
+                if p2 and liste and p2 < liste:
+                    perakende = p2
 
     # İndirim yoksa perakende = liste
     if perakende is None:
