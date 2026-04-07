@@ -170,16 +170,26 @@ def parse_prices(soup: BeautifulSoup) -> tuple[Optional[float], Optional[float]]
     if el:
         perakende = _parse_tr_price(el.get_text(strip=True))
 
-    # 2b. Fallback: .discount-name içindeki fiyat ("4.457,91 TLSepette %20 İndirim")
-    if perakende is None or perakende == liste:
+    # 2b. Fallback: "Sepette %20 İndirim" yazısından hesapla (her IP'den çalışır)
+    if (perakende is None or perakende == liste) and liste:
+        ppg = soup.select_one(".product-price-group, .prices, .price-group")
+        if ppg:
+            text = ppg.get_text(" ", strip=True)
+            m = re.search(r"Sepette\s+%(\d+)\s*[İIiı]ndirim", text, re.IGNORECASE)
+            if m:
+                pct = int(m.group(1))
+                perakende = round(liste * (1 - pct / 100), 2)
+                logger.debug(f"Sepette %{pct} indirim hesaplandı: {liste} → {perakende}")
+
+    # 2c. Fallback: .discount-name içindeki fiyat
+    if (perakende is None or perakende == liste) and liste:
         el_dn = soup.select_one(".discount-name")
         if el_dn:
             text = el_dn.get_text(strip=True)
-            # Metindeki ilk fiyatı al
             m = re.match(r"^([\d.,]+)\s*TL", text)
             if m:
                 p2 = _parse_tr_price(m.group(1))
-                if p2 and liste and p2 < liste:
+                if p2 and p2 < liste:
                     perakende = p2
 
     # İndirim yoksa perakende = liste

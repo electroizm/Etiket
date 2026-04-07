@@ -52,4 +52,23 @@ jobs:
           ppg = soup.select_one(".product-price-group")
           if ppg:
               print("PRODUCT-PRICE-GROUP HTML:", str(ppg)[:500])
+
+          # Sepette indirim yuzdesini hesapla
+          import re as _re
+          ppg2 = soup.select_one(".product-price-group, .prices, .price-group")
+          if ppg2:
+              text = ppg2.get_text(" ", strip=True)
+              m = _re.search(r"Sepette\s+%(\d+)\s*[İIiı]ndirim", text, _re.IGNORECASE)
+              if m:
+                  pct = int(m.group(1))
+                  print(f"SEPETTE INDIRIM: %{pct}")
+              else:
+                  print("SEPETTE INDIRIM: BULUNAMADI")
+                  print("PPG TEXT:", text[:200])
+
+          # parse_prices sonucu
+          import sys; sys.path.insert(0, ".")
+          from scraper.dogtas import parse_prices as pp
+          liste2, perakende2 = pp(soup)
+          print(f"PARSE SONUCU: liste={liste2}, perakende={perakende2}")
           EOF
