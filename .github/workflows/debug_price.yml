@@ -20,21 +20,25 @@ jobs:
 
           url = "https://www.dogtas.com/piero-sandalye-kadife-dokulu-krem-3120012493"
 
-          # JS değişkenlerinde fiyat ara
-          r2 = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"}, timeout=20)
           import re
-          # dataLayer, gtag, window.__PRICE__, vb.
-          patterns = [
-              r'dataLayer[^;]{0,500}price[^;]{0,200}',
-              r'"price"\s*:\s*[\d.]+',
-              r'"indirim[^"]*"\s*:\s*[\d.]+',
-              r'discount[^;]{0,100}price[^;]{0,100}',
-              r'sepette[^;]{0,200}',
-          ]
-          for pat in patterns:
-              matches = re.findall(pat, r2.text, re.IGNORECASE)
-              for m in matches[:2]:
-                  print(f"JS [{pat[:20]}]: {m[:150]}")
+          r2 = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"}, timeout=20)
+
+          # advancedBundleSummary objesini bul
+          m = re.search(r'advancedBundleSummary\s*=\s*(\{[^;]{0,500}\})', r2.text)
+          if m:
+              print("advancedBundleSummary:", m.group(1)[:300])
+          else:
+              print("advancedBundleSummary: YOK")
+
+          # discountPrice sayisal deger
+          matches = re.findall(r'discountPrice["\s:]+([0-9,.]+)', r2.text)
+          print("discountPrice degerleri:", matches[:5])
+
+          # dataLayer tam icerik
+          dl = re.findall(r'dataLayer\.push\((\{.{0,800}\})\)', r2.text, re.DOTALL)
+          for d in dl[:3]:
+              if 'price' in d.lower():
+                  print("dataLayer:", d[:400])
 
           # Farklı header kombinasyonlarını test et
           test_cases = [
