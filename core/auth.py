@@ -60,7 +60,7 @@ async def require_active_subscription(
     if not result.data:
         raise HTTPException(status_code=402, detail="Abonelik bulunamadı")
 
-    sub = result.data
+    sub = result.data[0]
     now = datetime.now(timezone.utc)
 
     # Trial kontrolü
