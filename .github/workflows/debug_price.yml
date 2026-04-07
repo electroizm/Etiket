@@ -20,24 +20,40 @@ jobs:
 
           url = "https://www.dogtas.com/piero-sandalye-kadife-dokulu-krem-3120012493"
 
-          # TR header ile dene
-          headers_tr = {
-              "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-              "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.1",
-              "Cookie": "language=tr; country=TR",
-          }
-          r = requests.get(url, headers=headers_tr, timeout=20)
-          soup = BeautifulSoup(r.text, "html.parser")
+          # Farklı header kombinasyonlarını test et
+          test_cases = [
+              ("Sadece UA", {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0",
+              }),
+              ("TR Cookie", {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0",
+                  "Accept-Language": "tr-TR,tr;q=0.9",
+                  "Cookie": "language=tr; country=TR",
+              }),
+              ("X-Forwarded-For TR IP", {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0",
+                  "Accept-Language": "tr-TR,tr;q=0.9",
+                  "Cookie": "language=tr; country=TR",
+                  "X-Forwarded-For": "78.185.100.1",
+                  "CF-IPCountry": "TR",
+              }),
+              ("Session cookie oncesi", None),  # Önce ana sayfadan cookie al
+          ]
 
-          el = soup.select_one(".discount-price, .new-sale-price")
-          print("TR Cookie ile .discount-price:", el.get_text(strip=True) if el else "YOK")
+          for name, headers in test_cases:
+              if headers is None:
+                  # Ana sayfadan gerçek cookie al
+                  s = requests.Session()
+                  s.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0", "Accept-Language": "tr-TR,tr;q=0.9"})
+                  s.get("https://www.dogtas.com/", timeout=15)
+                  r = s.get(url, timeout=20)
+              else:
+                  r = requests.get(url, headers=headers, timeout=20)
 
-          ppg = soup.select_one(".product-price-group")
-          print("product-price-group:", ppg.get_text(" ", strip=True)[:100] if ppg else "YOK")
-
-          # Sayfanin dil bilgisi
-          html_lang = soup.find("html")
-          print("HTML lang:", html_lang.get("lang") if html_lang else "YOK")
+              soup = BeautifulSoup(r.text, "html.parser")
+              el = soup.select_one(".discount-price, .new-sale-price")
+              ppg = soup.select_one(".product-price-group")
+              print(f"[{name}] discount-price: {el.get_text(strip=True) if el else 'YOK'} | ppg: {'VAR' if ppg else 'YOK'}")
           EOF
       - name: Fiyat elementlerini goster
         run: |
