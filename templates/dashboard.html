@@ -312,8 +312,10 @@ async function saveLabels() {
 // PDF İndir
 // -------------------------------------------------------
 async function generatePdf() {
+    console.log("[PDF] Tıklandı. kategori:", currentKategori, "koleksiyon:", currentKoleksiyon);
+
     if (!currentKategori || !currentKoleksiyon) {
-        alert("Önce kategori ve koleksiyon seçin.");
+        showToast("Önce kategori ve koleksiyon seçin.", "error");
         return;
     }
 
@@ -322,6 +324,7 @@ async function generatePdf() {
     btn.textContent = "Hazırlanıyor...";
 
     try {
+        console.log("[PDF] İstek gönderiliyor...");
         const res = await fetch("/pdf/generate", {
             method : "POST",
             headers: {"Content-Type": "application/json"},
@@ -331,26 +334,45 @@ async function generatePdf() {
             }),
         });
 
+        console.log("[PDF] Yanıt kodu:", res.status);
+
+        if (res.status === 401) {
+            window.location.href = "/auth/login";
+            return;
+        }
+
         if (res.status === 402) {
             window.location.href = "/payment";
             return;
         }
 
+        if (res.status === 404) {
+            showToast("Önce 'Etiket Listesi Kaydet' butonuna basın.", "error");
+            return;
+        }
+
         if (!res.ok) {
-            const err = await res.json();
-            alert("PDF hatası: " + (err.detail || "Bilinmeyen hata"));
+            const err = await res.json().catch(() => ({}));
+            showToast("PDF hatası: " + (err.detail || res.status), "error");
             return;
         }
 
         // Blob olarak al → indir
         const blob = await res.blob();
+        console.log("[PDF] Blob boyutu:", blob.size);
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement("a");
         a.href     = url;
         a.download = `etiket_${currentKoleksiyon}_${currentKategori}.pdf`.replace(/ /g, "_");
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        showToast("PDF indiriliyor...");
 
+    } catch (e) {
+        console.error("[PDF] Hata:", e);
+        showToast("Bağlantı hatası: " + e.message, "error");
     } finally {
         btn.disabled    = false;
         btn.textContent = "PDF İndir";
@@ -365,12 +387,12 @@ function formatPrice(n) {
     return parseInt(n).toLocaleString("tr-TR");
 }
 
-function showToast(msg) {
+function showToast(msg, type = "success") {
     const t = document.createElement("div");
-    t.className   = "toast";
+    t.className   = "toast" + (type === "error" ? " toast-error" : "");
     t.textContent = msg;
     document.body.appendChild(t);
-    setTimeout(() => t.remove(), 3000);
+    setTimeout(() => t.remove(), 4000);
 }
 
 // Başlat

@@ -247,6 +247,7 @@ body {
     z-index: 9999;
     animation: slideIn .2s ease;
 }
+.toast-error { background: #e74c3c; }
 @keyframes slideIn {
     from { transform: translateY(20px); opacity: 0; }
     to   { transform: translateY(0);    opacity: 1; }
