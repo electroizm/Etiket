@@ -118,6 +118,18 @@ async function onKoleksiyonChange(koleksiyon) {
     currentKoleksiyon = koleksiyon;
     selectedSkus      = {};
     if (!koleksiyon) return;
+
+    // Daha önce kaydedilmiş seçimleri yükle
+    try {
+        const res = await fetch(`/labels/${encodeURIComponent(currentKategori)}/${encodeURIComponent(koleksiyon)}`);
+        if (res.ok) {
+            const saved = await res.json();
+            (saved.urunler || []).forEach(u => {
+                selectedSkus[u.sku] = { checked: true, miktar: u.miktar || 1 };
+            });
+        }
+    } catch (_) {}
+
     await loadProducts();
 }
 
