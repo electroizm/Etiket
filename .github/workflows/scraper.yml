@@ -2,7 +2,7 @@ name: Dogtas Scraper
 
 on:
   schedule:
-    - cron: "0 0 * * *"   # Her gece 00:00 UTC = 03:00 Türkiye saati
+    - cron: "0 0 * * 0"   # Devre dışı: sadece Pazar günleri (referans için)
   workflow_dispatch:        # Elle de başlatılabilir (GitHub → Actions → Run workflow)
 
 jobs:
