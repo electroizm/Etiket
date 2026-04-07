@@ -1,183 +1,354 @@
 """
 generator.py — ReportLab PDF üretici
-Mevcut etiketYazdir.py mantığını BytesIO ile stream'e taşır.
-Diske hiçbir şey yazılmaz.
+etiketYazdir.py mantığını BytesIO stream'e taşır (diske yazmaz).
 """
 
+import os
+import re
 from io import BytesIO
 from datetime import datetime
+from typing import Optional
+
+import requests
+import qrcode
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib import colors
-import qrcode
-from PIL import Image
-import os
+from reportlab.platypus import Table, TableStyle, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# ── Google Drive görsel URL'leri ─────────────────────────────────────────────
+ETIKET_BASLIK_URL = (
+    "https://drive.google.com/file/d/1RSP3YaCUNqy9Nedaaz5OUlKq9855Glh9"
+    "/view?usp=drive_link"
+)
+YERLI_URETIM_URL = (
+    "https://drive.google.com/file/d/1pYA85nxhmU6yhWJ3n0jIz1zAkTUeY--8"
+    "/view?usp=drive_link"
+)
+
+# Modül düzeyinde görsel önbelleği
+_IMAGE_CACHE: dict = {}
+
+# Font kaydedildi mi?
+_FONTS_REGISTERED = False
 
 
-def _get_font():
-    """Sistem fontunu yükle"""
-    # Windows'ta Arial, Linux'ta DejaVu
-    font_paths = [
-        "C:/Windows/Fonts/arialbd.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+# ─────────────────────────────────────────────────────────────────────────────
+# Yardımcı fonksiyonlar
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _convert_gdrive_url(url: str) -> str:
+    """Google Drive görüntüleme linkini doğrudan indirme linkine çevirir."""
+    if "uc?export=download" in url:
+        return url
+    m = re.search(r"/file/d/([a-zA-Z0-9_-]+)", url)
+    if m:
+        return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
+    return url
+
+
+def _load_image(url: str) -> Optional[ImageReader]:
+    """Google Drive URL'den görsel indir, önbellekle döndür."""
+    if url in _IMAGE_CACHE:
+        return _IMAGE_CACHE[url]
+    try:
+        dl  = _convert_gdrive_url(url)
+        r   = requests.get(dl, timeout=10)
+        if r.status_code == 200:
+            img = ImageReader(BytesIO(r.content))
+            _IMAGE_CACHE[url] = img
+            return img
+    except Exception:
+        pass
+    return None
+
+
+def _setup_fonts():
+    """Arial (Windows) veya DejaVu (Linux/Render) fontlarını kaydet."""
+    global _FONTS_REGISTERED
+    if _FONTS_REGISTERED:
+        return
+    font_pairs = [
+        # (regular, bold)
+        (
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+        ),
+        (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ),
+        (
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+        ),
     ]
-    for path in font_paths:
-        if os.path.exists(path):
+    for reg_path, bold_path in font_pairs:
+        if os.path.exists(reg_path) and os.path.exists(bold_path):
             try:
-                pdfmetrics.registerFont(TTFont("EtiketFont", path))
-                return "EtiketFont"
+                pdfmetrics.registerFont(TTFont("Arial",      reg_path))
+                pdfmetrics.registerFont(TTFont("Arial-Bold", bold_path))
+                _FONTS_REGISTERED = True
+                return
             except Exception:
                 continue
-    return "Helvetica-Bold"   # Fallback
+    # Fallback: Helvetica (ReportLab built-in)
+    _FONTS_REGISTERED = True
 
 
-def _make_qr(url: str) -> BytesIO:
-    """URL'den QR kod üret → BytesIO döner"""
-    qr = qrcode.QRCode(version=1, box_size=4, border=2)
+def _font(bold: bool = False) -> str:
+    """Kayıtlı font adını döner."""
+    return "Arial-Bold" if bold else "Arial"
+
+
+def _make_qr(url: str) -> ImageReader:
+    """URL'den QR kod görüntüsü üret → ImageReader döner."""
+    qr = qrcode.QRCode(version=1, box_size=10, border=2)
     qr.add_data(url)
     qr.make(fit=True)
-    img   = qr.make_image(fill_color="black", back_color="white")
-    buf   = BytesIO()
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    return buf
+    return ImageReader(buf)
 
 
-def _format_price(price: float) -> str:
-    """12500 → '12.500'"""
-    return f"{int(price):,}".replace(",", ".")
+def _format_price(price) -> str:
+    """12500 → '12.500 TL'"""
+    try:
+        return f"{int(float(price)):,} TL".replace(",", ".")
+    except (TypeError, ValueError):
+        return "0 TL"
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Çizim fonksiyonları
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _draw_cutting_lines(c, page_width: float, page_height: float):
+    """Köşe kesim çizgilerini çizer (etiketYazdir.py ile birebir)."""
+    L = 60
+    c.setLineWidth(2)
+    c.setStrokeColorRGB(0, 0, 0)
+    # Sol Üst
+    c.line(10, page_height - 10, 10 + L, page_height - 10)
+    c.line(10, page_height - 10, 10, page_height - 10 - L)
+    # Sağ Üst
+    c.line(page_width - 10, page_height - 10, page_width - 10 - L, page_height - 10)
+    c.line(page_width - 10, page_height - 10, page_width - 10, page_height - 10 - L)
+    # Sol Alt
+    c.line(10, 10, 10 + L, 10)
+    c.line(10, 10, 10, 10 + L)
+    # Sağ Alt
+    c.line(page_width - 10, 10, page_width - 10 - L, 10)
+    c.line(page_width - 10, 10, page_width - 10, 10 + L)
+
+
+def _draw_discount_badge(c, page_height: float, indirim_yuzde: int):
+    """Siyah eğik indirim etiketi çizer (etiketYazdir.py ile birebir)."""
+    etiket_width  = 110
+    etiket_height = 45
+    etiket_x      = 510
+    etiket_y      = page_height - 140
+
+    c.saveState()
+    c.translate(etiket_x, etiket_y)
+    c.rotate(-17)
+
+    # Koyu arka plan
+    c.setFillColorRGB(0.07, 0.07, 0.07)
+    c.roundRect(0, 0, etiket_width, etiket_height, 8, fill=1, stroke=0)
+
+    # Beyaz yazı
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont(_font(bold=True), 36)
+    text = f"-{indirim_yuzde}%"
+    tw   = c.stringWidth(text, _font(bold=True), 36)
+    c.drawString((etiket_width - tw) / 2, etiket_height / 2 - 13, text)
+
+    c.restoreState()
+
+
+def _draw_table(c, label_data: dict, page_width: float, page_height: float):
+    """Fiyat tablosunu çizer (etiketYazdir.py ile birebir)."""
+    styles     = getSampleStyleSheet()
+    koleksiyon = label_data.get("koleksiyon", "")
+    kategori   = label_data.get("kategori", "")
+    urunler    = label_data.get("urunler", []) or []
+    takim_sku  = label_data.get("takim_sku", {}) or {}
+
+    # ── Başlık satırı ────────────────────────────────────────────────────────
+    title_text = takim_sku.get("urun_adi_tam") or f"{koleksiyon} {kategori}"
+    title_style = ParagraphStyle(
+        "TitleStyle",
+        parent=styles["Normal"],
+        fontName=_font(bold=True),
+        fontSize=16,
+        leading=18,
+        textColor=colors.HexColor("#000000"),
+        alignment=0,
+    )
+    title_para = Paragraph(title_text, title_style)
+    data = [[title_para, "İNDİRİMLİ FİYAT", "LİSTE FİYATI"]]
+
+    # ── Ürün satırları ───────────────────────────────────────────────────────
+    product_style = ParagraphStyle(
+        "ProductStyle",
+        parent=styles["Normal"],
+        fontName=_font(bold=False),
+        fontSize=10,
+        leading=12,
+        textColor=colors.black,
+    )
+    for urun in urunler:
+        name = Paragraph(urun.get("urun_adi_tam", ""), product_style)
+        data.append([
+            name,
+            _format_price(urun.get("perakende_fiyat", 0)),
+            _format_price(urun.get("liste_fiyat", 0)),
+        ])
+
+    product_count = len(urunler)
+
+    # ── Takım / kombinasyon satırı (bold, büyük) ─────────────────────────────
+    # Sadece takim_sku'nun fiyatı bireysel üründen farklıysa ekle
+    takim_liste     = takim_sku.get("liste_fiyat", 0)
+    takim_perakende = takim_sku.get("perakende_fiyat", 0)
+    takim_adi       = (
+        label_data.get("takim_adi", "")
+        or takim_sku.get("urun_adi_tam", "")
+    )
+    first_liste = urunler[0].get("liste_fiyat", 0) if urunler else 0
+    show_takim  = bool(takim_liste and takim_liste != first_liste and takim_adi)
+
+    aciklama_style = ParagraphStyle(
+        "AciklamaStyle",
+        parent=styles["Normal"],
+        fontName=_font(bold=True),
+        fontSize=14,
+        leading=16,
+        textColor=colors.HexColor("#000000"),
+        spaceBefore=10,
+        spaceAfter=10,
+    )
+    if show_takim:
+        para = Paragraph(takim_adi, aciklama_style)
+        data.append([
+            para,
+            _format_price(takim_perakende),
+            _format_price(takim_liste),
+        ])
+
+    # ── Tablo stili (etiketYazdir.py ile birebir) ─────────────────────────────
+    table_style = TableStyle([
+        ("BACKGROUND",     (0, 0), (-1, 0),  colors.HexColor("#D3D3D3")),
+        ("TEXTCOLOR",      (0, 0), (-1, 0),  colors.black),
+        ("ALIGN",          (0, 0), (-1, -1), "LEFT"),
+        ("ALIGN",          (1, 0), (-1, -1), "RIGHT"),
+        ("FONTNAME",       (0, 0), (-1, 0),  _font(bold=True)),
+        ("FONTSIZE",       (0, 0), (-1, 0),  16),
+        ("BOTTOMPADDING",  (0, 0), (-1, 0),  12),
+        ("BACKGROUND",     (0, 1), (-1, -1), colors.white),
+        ("GRID",           (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#F5F5F5"), colors.white]),
+        ("VALIGN",         (0, 0), (-1, -1), "MIDDLE"),
+        # Takım satırları bold
+        ("FONTNAME",       (0, product_count + 1), (-1, -1), _font(bold=True)),
+        ("FONTSIZE",       (0, product_count + 1), (-1, -1), 14),
+    ])
+
+    col_widths  = [page_width - 425, 135, 125]
+    row_heights = [30] + [17] * product_count
+    if show_takim:
+        row_heights += [20]
+
+    table = Table(data, colWidths=col_widths, rowHeights=row_heights)
+    table.setStyle(table_style)
+    table.wrapOn(c, page_width, page_height)
+    table.drawOn(c, 80, page_height - 180 - table._height)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ana fonksiyon
+# ─────────────────────────────────────────────────────────────────────────────
 
 def generate_pdf(buffer: BytesIO, label_data: dict) -> None:
     """
-    label_data yapısı (user_labels tablosundan gelen):
+    label_data: user_labels tablosundan gelen satır.
     {
-        "kategori"  : "Yatak Odası",
-        "koleksiyon": "Svea",
-        "takim_adi" : "6 Kapaklı, Karyola",
-        "urunler"   : [
-            {"sku": "...", "urun_adi_tam": "...", "liste_fiyat": 12500,
-             "perakende_fiyat": 11250, "miktar": 1}
-        ],
-        "takim_sku" : {"sku": "...", "liste_fiyat": ..., "perakende_fiyat": ..., "indirim_yuzde": 10}
+      "kategori"  : "Oturma Grubu",
+      "koleksiyon": "CALMERA",
+      "takim_adi" : "",           # opsiyonel kombinasyon adı
+      "urunler"   : [...],        # bireysel ürün listesi
+      "takim_sku" : {...},        # set bilgisi (url, indirim_yuzde, fiyatlar)
     }
+    PDF BytesIO stream'e yazılır, diske dokunulmaz.
     """
-    font_name  = _get_font()
-    page_w, page_h = landscape(A4)   # 297 × 210 mm
+    _setup_fonts()
 
+    page_width, page_height = landscape(A4)   # 841.89 × 595.27 pt
     c = canvas.Canvas(buffer, pagesize=landscape(A4))
 
-    kategori   = label_data.get("kategori", "")
-    koleksiyon = label_data.get("koleksiyon", "")
-    takim_adi  = label_data.get("takim_adi", "")
-    urunler    = label_data.get("urunler", [])
-    takim_sku  = label_data.get("takim_sku", {})
-    tarih      = datetime.now().strftime("%d.%m.%Y")
+    takim_sku = label_data.get("takim_sku", {}) or {}
+    urunler   = label_data.get("urunler", []) or []
 
-    # ----------------------------------------------------------------
-    # Sayfa düzeni — basit grid (max 11 ürün, 3 sütun)
-    # ----------------------------------------------------------------
-    margin    = 10 * mm
-    card_w    = (page_w - 2 * margin) / 3
-    card_h    = (page_h - 2 * margin) / 4
-    cols      = 3
+    # ── 1. Kesim çizgileri ────────────────────────────────────────────────────
+    _draw_cutting_lines(c, page_width, page_height)
 
-    for idx, urun in enumerate(urunler[:11]):
-        col = idx % cols
-        row = idx // cols
+    # ── 2. Başlık resmi (Google Drive) ───────────────────────────────────────
+    header_img = _load_image(ETIKET_BASLIK_URL)
+    if header_img:
+        c.drawImage(
+            header_img, -10, page_height - 175,
+            width=590, height=90, preserveAspectRatio=True,
+        )
 
-        x = margin + col * card_w
-        y = page_h - margin - (row + 1) * card_h
-
-        _draw_card(c, x, y, card_w, card_h, urun, font_name,
-                   kategori, koleksiyon, takim_adi, tarih)
-
-    c.save()
-
-
-def _draw_card(c, x, y, w, h, urun, font_name,
-               kategori, koleksiyon, takim_adi, tarih):
-    """Tek ürün kartını çiz"""
-    pad = 3 * mm
-
-    # Çerçeve
-    c.setStrokeColor(colors.HexColor("#2c3e50"))
-    c.setLineWidth(1)
-    c.rect(x, y, w, h)
-
-    # Koleksiyon başlık bandı
-    c.setFillColor(colors.HexColor("#2c3e50"))
-    c.rect(x, y + h - 10 * mm, w, 10 * mm, fill=1, stroke=0)
-
-    c.setFillColor(colors.white)
-    c.setFont(font_name, 9)
-    c.drawString(x + pad, y + h - 7 * mm, f"{koleksiyon}  |  {kategori}")
-
-    # Ürün adı
-    c.setFillColor(colors.HexColor("#2c3e50"))
-    c.setFont(font_name, 8)
-    urun_adi = urun.get("urun_adi_tam", "")[:50]
-    c.drawString(x + pad, y + h - 15 * mm, urun_adi)
-
-    # SKU
-    c.setFont(font_name, 7)
-    c.setFillColor(colors.HexColor("#7f8c8d"))
-    c.drawString(x + pad, y + h - 20 * mm, f"SKU: {urun.get('sku', '')}")
-
-    # Fiyatlar
-    liste      = urun.get("liste_fiyat", 0)
-    perakende  = urun.get("perakende_fiyat", 0)
-    indirim    = int((1 - perakende / liste) * 100) if liste and liste != perakende else 0
-
-    if indirim > 0:
-        # Üstü çizili liste fiyatı
-        c.setFont(font_name, 8)
-        c.setFillColor(colors.HexColor("#95a5a6"))
-        liste_str = f"{_format_price(liste)} TL"
-        c.drawString(x + pad, y + h - 27 * mm, liste_str)
-        # Üstü çizili çizgi
-        tw = c.stringWidth(liste_str, font_name, 8)
-        c.line(x + pad, y + h - 26 * mm, x + pad + tw, y + h - 26 * mm)
-
-        # İndirim etiketi
-        c.setFillColor(colors.HexColor("#e74c3c"))
-        c.roundRect(x + w - 18 * mm, y + h - 30 * mm, 16 * mm, 8 * mm, 2 * mm, fill=1, stroke=0)
-        c.setFillColor(colors.white)
-        c.setFont(font_name, 8)
-        c.drawCentredString(x + w - 10 * mm, y + h - 27 * mm, f"%{indirim}")
-
-    # Perakende fiyat (büyük)
-    c.setFillColor(colors.HexColor("#2c3e50"))
-    c.setFont(font_name, 14)
-    c.drawString(x + pad, y + h - 37 * mm, f"{_format_price(perakende)} TL")
-
-    # Miktar
-    miktar = urun.get("miktar", 1)
-    if int(miktar) > 1:
-        c.setFont(font_name, 8)
-        c.setFillColor(colors.HexColor("#27ae60"))
-        c.drawString(x + pad, y + h - 43 * mm, f"Adet: {miktar}")
-
-    # QR kod (ürün URL'si varsa)
-    url = urun.get("urun_url", "")
-    if url:
+    # ── 3. QR Kodu ────────────────────────────────────────────────────────────
+    qr_url = (
+        takim_sku.get("urun_url")
+        or takim_sku.get("url")
+        or (urunler[0].get("urun_url") if urunler else None)
+    )
+    if qr_url:
         try:
-            qr_buf = _make_qr(url)
-            from reportlab.lib.utils import ImageReader
-            qr_img = ImageReader(qr_buf)
-            qr_size = 15 * mm
-            c.drawImage(qr_img, x + w - qr_size - pad, y + pad,
-                        width=qr_size, height=qr_size)
+            qr_img = _make_qr(qr_url)
+            c.drawImage(
+                qr_img, page_width - 185, page_height - 175,
+                width=100, height=100,
+            )
         except Exception:
             pass
 
-    # Tarih
-    c.setFont(font_name, 6)
-    c.setFillColor(colors.HexColor("#bdc3c7"))
-    c.drawString(x + pad, y + pad, tarih)
+    # ── 4. İndirim yüzdesi etiketi ────────────────────────────────────────────
+    indirim_yuzde = int(takim_sku.get("indirim_yuzde") or 0)
+    if not indirim_yuzde and urunler:
+        liste_f = float(urunler[0].get("liste_fiyat") or 0)
+        perak_f = float(urunler[0].get("perakende_fiyat") or 0)
+        if liste_f and perak_f and liste_f != perak_f:
+            indirim_yuzde = round((1 - perak_f / liste_f) * 100)
+    if indirim_yuzde > 0:
+        _draw_discount_badge(c, page_height, indirim_yuzde)
+
+    # ── 5. Fiyat tablosu ──────────────────────────────────────────────────────
+    _draw_table(c, label_data, page_width, page_height)
+
+    # ── 6. Dipnot ─────────────────────────────────────────────────────────────
+    tarih  = datetime.now().strftime("%d.%m.%Y")
+    dipnot = (
+        f"Fiyat Değişiklik Tarihi: {tarih} / "
+        "Fiyatlara KDV dahildir / Üretim Yeri: TÜRKİYE"
+    )
+    c.setFont(_font(bold=False), 9)
+    c.setFillColorRGB(0, 0, 0)
+    c.drawString(100, 80, dipnot)
+
+    # ── 7. Yerli Üretim logosu (Google Drive) ────────────────────────────────
+    logo_img = _load_image(YERLI_URETIM_URL)
+    if logo_img:
+        c.drawImage(logo_img, page_width - 180, 80, width=100, height=30)
+
+    c.save()

@@ -263,7 +263,18 @@ async function saveLabels() {
         return;
     }
 
-    const takim_sku = urunler[0];   // İlk ürün takım SKU'su
+    // takim_sku: koleksiyon URL'i + indirim yüzdesi bilgisi
+    const first = urunler[0];
+    const indirim_yuzde = (first.liste_fiyat && first.liste_fiyat !== first.perakende_fiyat)
+        ? Math.round((1 - first.perakende_fiyat / first.liste_fiyat) * 100)
+        : 0;
+    const takim_sku = {
+        urun_adi_tam    : `${currentKoleksiyon} ${currentKategori}`,
+        urun_url        : first.urun_url || "",
+        indirim_yuzde,
+        liste_fiyat     : first.liste_fiyat,
+        perakende_fiyat : first.perakende_fiyat,
+    };
 
     const res = await fetch("/labels/kaydet", {
         method : "POST",
