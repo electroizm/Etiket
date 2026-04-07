@@ -1,0 +1,55 @@
+name: Debug Price Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests beautifulsoup4 lxml
+      - name: Fiyat elementlerini goster
+        run: |
+          python - << 'EOF'
+          import requests, re
+          from bs4 import BeautifulSoup
+
+          url = "https://www.dogtas.com/piero-sandalye-kadife-dokulu-krem-3120012493"
+          headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+          r = requests.get(url, headers=headers, timeout=20)
+          print("HTTP Status:", r.status_code)
+          soup = BeautifulSoup(r.text, "html.parser")
+
+          # JSON-LD
+          import json
+          for script in soup.find_all("script", type="application/ld+json"):
+              try:
+                  data = json.loads(script.string or "")
+                  if data.get("@type") == "Product":
+                      print("JSON-LD price:", data.get("offers", {}).get("price"))
+              except: pass
+
+          # Tum fiyat elementleri
+          selectors = [
+              ".discount-price", ".new-sale-price", ".sale-price",
+              ".discount-name", ".old-price", ".list-price",
+              ".product-price-group", ".prices"
+          ]
+          for sel in selectors:
+              for el in soup.select(sel)[:2]:
+                  txt = el.get_text(strip=True)[:80]
+                  print(f"{sel}: {txt!r}")
+
+          # Sepette kelimesini ara
+          for el in soup.find_all(string=re.compile("Sepette")):
+              print("SEPETTE:", el.strip()[:60])
+
+          # product-price-group tam HTML
+          ppg = soup.select_one(".product-price-group")
+          if ppg:
+              print("PRODUCT-PRICE-GROUP HTML:", str(ppg)[:500])
+          EOF
