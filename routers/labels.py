@@ -43,12 +43,12 @@ async def get_label(
         .eq("user_id", user["sub"])
         .eq("kategori", kategori)
         .eq("koleksiyon", koleksiyon)
-        .single()
+        .limit(1)
         .execute()
     )
     if not res.data:
         raise HTTPException(status_code=404, detail="Etiket bulunamadı")
-    return res.data
+    return res.data[0]
 
 
 @router.post("/kaydet")

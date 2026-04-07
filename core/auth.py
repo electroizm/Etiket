@@ -55,7 +55,7 @@ async def require_active_subscription(
     user_id = user.get("sub")
     sb = get_supabase()
 
-    result = sb.table("subscriptions").select("*").eq("user_id", user_id).single().execute()
+    result = sb.table("subscriptions").select("*").eq("user_id", user_id).limit(1).execute()
 
     if not result.data:
         raise HTTPException(status_code=402, detail="Abonelik bulunamadı")
