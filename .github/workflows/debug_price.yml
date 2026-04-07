@@ -22,23 +22,26 @@ jobs:
 
           import re
           r2 = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"}, timeout=20)
+          soup2 = BeautifulSoup(r2.text, "html.parser")
 
-          # advancedBundleSummary objesini bul
-          m = re.search(r'advancedBundleSummary\s*=\s*(\{[^;]{0,500}\})', r2.text)
-          if m:
-              print("advancedBundleSummary:", m.group(1)[:300])
-          else:
-              print("advancedBundleSummary: YOK")
+          # Tum class adlarini listele - fiyat ile ilgili olanlar
+          all_classes = set()
+          for tag in soup2.find_all(True):
+              for c in tag.get("class", []):
+                  if any(x in c.lower() for x in ["price", "fiyat", "sale", "discount", "indirim", "profit"]):
+                      all_classes.add(c)
+          print("Fiyat class'lari:", sorted(all_classes))
 
-          # discountPrice sayisal deger
-          matches = re.findall(r'discountPrice["\s:]+([0-9,.]+)', r2.text)
-          print("discountPrice degerleri:", matches[:5])
+          # discount-name var mi?
+          dn = soup2.select(".discount-name")
+          print("discount-name sayisi:", len(dn))
+          for d in dn[:2]:
+              print("  discount-name:", d.get_text(strip=True)[:80])
 
-          # dataLayer tam icerik
-          dl = re.findall(r'dataLayer\.push\((\{.{0,800}\})\)', r2.text, re.DOTALL)
-          for d in dl[:3]:
-              if 'price' in d.lower():
-                  print("dataLayer:", d[:400])
+          # Sepette kelimesi HTML'de var mi?
+          import re as re2
+          sepette = re2.findall(r'Sepette[^\<]{0,50}', r2.text)
+          print("Sepette metinleri:", sepette[:5])
 
           # Farklı header kombinasyonlarını test et
           test_cases = [
