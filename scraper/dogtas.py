@@ -36,6 +36,13 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 ]
 
+# Türkçe dil header'ları — dogtas.com yabancı IP'ye indirim göstermiyor,
+# TR dil bilgisi gönderilince sepette indirim fiyatı HTML'de görünüyor
+TR_HEADERS = {
+    "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.1",
+    "Cookie": "language=tr; country=TR",
+}
+
 CONCURRENT   = 2          # Aynı anda kaç istek
 DELAY_MIN    = 1.5        # İstek arası min bekleme (jitter)
 DELAY_MAX    = 3.0        # İstek arası max bekleme
@@ -59,7 +66,7 @@ def get_all_product_urls() -> list[str]:
     Önce dogtas.com/sitemap.xml → index parse.
     Başarısız olursa /sitemap/products/N.xml fallback (boş gelene kadar).
     """
-    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    headers = {"User-Agent": random.choice(USER_AGENTS), **TR_HEADERS}
     ns      = {"s": "http://www.sitemaps.org/schemas/sitemap/0.9"}
     all_urls: list[str] = []
 
@@ -333,7 +340,7 @@ async def fetch_url(
     async with sem:
         await asyncio.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
         try:
-            headers = {"User-Agent": random.choice(USER_AGENTS)}
+            headers = {"User-Agent": random.choice(USER_AGENTS), **TR_HEADERS}
             timeout = aiohttp.ClientTimeout(total=30 * attempt)
             async with session.get(url, headers=headers, timeout=timeout) as r:
                 if r.status == 429:
