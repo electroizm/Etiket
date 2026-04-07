@@ -44,7 +44,10 @@ async def pdf_generate(
 
     # PDF üret (BytesIO — diske yazmaz)
     buffer = BytesIO()
-    generate_pdf(buffer, label_data)
+    try:
+        generate_pdf(buffer, label_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF üretim hatası: {e}")
     buffer.seek(0)
 
     filename = f"etiket_{body.koleksiyon}_{body.kategori}.pdf".replace(" ", "_")

@@ -33,8 +33,10 @@ YERLI_URETIM_URL = (
 # Modül düzeyinde görsel önbelleği
 _IMAGE_CACHE: dict = {}
 
-# Font kaydedildi mi?
-_FONTS_REGISTERED = False
+# Kullanılacak font isimleri (setup sonrası güncellenir)
+_FONT_NORMAL = "Helvetica"
+_FONT_BOLD   = "Helvetica-Bold"
+_FONTS_READY = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -68,41 +70,38 @@ def _load_image(url: str) -> Optional[ImageReader]:
 
 
 def _setup_fonts():
-    """Arial (Windows) veya DejaVu (Linux/Render) fontlarını kaydet."""
-    global _FONTS_REGISTERED
-    if _FONTS_REGISTERED:
+    """Arial (Windows) veya DejaVu (Linux/Render) fontlarını kaydet.
+    Bulunamazsa ReportLab built-in Helvetica kullanılır."""
+    global _FONT_NORMAL, _FONT_BOLD, _FONTS_READY
+    if _FONTS_READY:
         return
     font_pairs = [
-        # (regular, bold)
-        (
-            "C:/Windows/Fonts/arial.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
-        ),
-        (
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        ),
-        (
-            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
-        ),
+        ("C:/Windows/Fonts/arial.ttf",    "C:/Windows/Fonts/arialbd.ttf"),
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        ("/usr/share/fonts/dejavu/DejaVuSans.ttf",
+         "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
     ]
     for reg_path, bold_path in font_pairs:
         if os.path.exists(reg_path) and os.path.exists(bold_path):
             try:
                 pdfmetrics.registerFont(TTFont("Arial",      reg_path))
                 pdfmetrics.registerFont(TTFont("Arial-Bold", bold_path))
-                _FONTS_REGISTERED = True
+                _FONT_NORMAL = "Arial"
+                _FONT_BOLD   = "Arial-Bold"
+                _FONTS_READY = True
                 return
             except Exception:
                 continue
-    # Fallback: Helvetica (ReportLab built-in)
-    _FONTS_REGISTERED = True
+    # Fallback: Helvetica her zaman mevcut (ReportLab built-in)
+    _FONT_NORMAL = "Helvetica"
+    _FONT_BOLD   = "Helvetica-Bold"
+    _FONTS_READY = True
 
 
 def _font(bold: bool = False) -> str:
-    """Kayıtlı font adını döner."""
-    return "Arial-Bold" if bold else "Arial"
+    """Kayıtlı font adını döner (setup'tan sonra gerçek değer)."""
+    return _FONT_BOLD if bold else _FONT_NORMAL
 
 
 def _make_qr(url: str) -> ImageReader:
