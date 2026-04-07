@@ -1,3 +1,4 @@
+import traceback
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -47,7 +48,8 @@ async def pdf_generate(
     try:
         generate_pdf(buffer, label_data)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF üretim hatası: {e}")
+        detail = f"PDF üretim hatası: {e}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=detail)
     buffer.seek(0)
 
     filename = f"etiket_{body.koleksiyon}_{body.kategori}.pdf".replace(" ", "_")
